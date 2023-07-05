@@ -13,13 +13,14 @@
  */
 namespace Smile\ElasticsuiteIndices\Model;
 
+use DateInterval;
+use DateTime;
+use Exception;
 use Magento\Framework\DataObject;
 use Smile\ElasticsuiteCore\Helper\IndexSettings as IndexSettingsHelper;
 use Smile\ElasticsuiteIndices\Block\Widget\Grid\Column\Renderer\IndexStatus;
 use Smile\ElasticsuiteIndices\Model\ResourceModel\StoreIndices\CollectionFactory as StoreIndicesCollectionFactory;
 use Smile\ElasticsuiteIndices\Model\ResourceModel\WorkingIndexer\CollectionFactory as WorkingIndexerCollectionFactory;
-use Zend_Date;
-use Zend_Date_Exception;
 
 /**
  * Class IndexStatusProvider
@@ -34,11 +35,6 @@ class IndexStatusProvider
      * How many days after an index is a ghost.
      */
     private const NUMBER_DAYS_AFTER_INDEX_IS_GHOST = 2;
-
-    /**
-     * Store number of seconds in a year.
-     */
-    private const SECONDS_IN_YEAR = 31536000;
 
     /**
      * Store number of seconds in a day.
@@ -78,7 +74,7 @@ class IndexStatusProvider
     }
 
     /**
-     * Get a index status.
+     * Get an index status.
      *
      * @param string $indexName Index name.
      * @param string $alias     Index alias.
@@ -111,16 +107,20 @@ class IndexStatusProvider
     /**
      * Returns if index is rebuilding.
      *
-     * @param string          $indexName Index name.
-     * @param Zend_Date|false $indexDate Index updated date.
+     * @param string         $indexName Index name.
+     * @param DateTime|false $indexDate Index updated date.
      * @return bool
+     * @throws Exception
      */
     private function isRebuilding(string $indexName, $indexDate): bool
     {
         if (!empty($this->workingIndexers)) {
             foreach (array_keys($this->workingIndexers) as $indexKey) {
-                if (strpos($indexName, $indexKey) !== false) {
-                    return $indexDate->isToday();
+                if (strpos((string) $indexName, $indexKey) !== false) {
+                    $today = new DateTime('Ymd');
+                    $day   = new DateTime($indexDate);
+
+                    return ($today == $day);
                 }
             }
         }
@@ -138,7 +138,7 @@ class IndexStatusProvider
     private function isExternal(string $indexName): bool
     {
         foreach ($this->storeIndices as $store) {
-            if (strpos($indexName, $store['pattern']) !== false) {
+            if (strpos((string) $indexName, $store['pattern']) !== false) {
                 return false;
             }
         }
@@ -149,14 +149,17 @@ class IndexStatusProvider
     /**
      * Returns if index is ghost.
      *
-     * @param Zend_Date|false $indexDate Index updated date.
+     * @param DateTime $indexDate Index updated date.
+     *
      * @return bool
      */
     private function isGhost($indexDate): bool
     {
         try {
-            return (new Zend_Date())->sub($indexDate)->getTimestamp() / self::SECONDS_IN_DAY >= self::NUMBER_DAYS_AFTER_INDEX_IS_GHOST;
-        } catch (Zend_Date_Exception $e) {
+            $indexDate = ($indexDate instanceof DateTime) ? $indexDate : new DateTime();
+
+            return (new DateTime())->diff($indexDate)->days >= self::NUMBER_DAYS_AFTER_INDEX_IS_GHOST;
+        } catch (Exception $e) {
             return false;
         }
     }
@@ -174,11 +177,12 @@ class IndexStatusProvider
 
     /**
      * Get index updated date from index name.
+     * @SuppressWarnings(PHPMD.StaticAccess)
      *
      * @param string $indexName Index name.
      * @param string $alias     Index alias.
      *
-     * @return Zend_Date|false
+     * @return DateTime|false
      */
     private function getIndexUpdatedDateFromIndexName($indexName, $alias)
     {
@@ -189,25 +193,18 @@ class IndexStatusProvider
             return false;
         }
 
-        $count = 0;
         $format = '';
         foreach ($matches[1] as $value) {
-            $count += strlen($value);
             $format .= $value;
         }
 
         try {
             // Remove alias from index name since next preg_replace would fail if alias is containing numbers.
-            $indexName = str_replace($alias ?? '', '', $indexName);
-            $date      = substr(preg_replace('/[^0-9]/', '', $indexName), -$count);
+            $indexName = str_replace($alias ?? $this->indexSettingsHelper->getIndexAlias(), '', $indexName);
+            $date      = preg_replace('/[^0-9]|(?<=[a-zA-Z])[0-9]/', '', $indexName);
 
-            // Tracking indices are built monthly and does not fit with standard pattern containing datetime with hours.
-            if (strlen($date) !== 14) {
-                return false;
-            }
-
-            return new Zend_Date($date, $format);
-        } catch (Zend_Date_Exception $e) {
+            return DateTime::createFromFormat($format, $date);
+        } catch (Exception $e) {
             return false;
         }
     }

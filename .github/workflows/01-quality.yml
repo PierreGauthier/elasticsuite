@@ -5,10 +5,15 @@ on:
         branches:
         - 2.9.x
         - 2.10.x
+        - 2.11.x
+        - master
+
     pull_request_target:
         branches:
         - 2.9.x
         - 2.10.x
+        - 2.11.x
+        - master
 
 jobs:
     qualit:
@@ -16,7 +21,7 @@ jobs:
         runs-on: ubuntu-20.04
         strategy:
             matrix:
-                php-versions: ['7.4']
+                php-versions: ['8.1']
         steps:
             - name: Checkout
               uses: actions/checkout@v2
